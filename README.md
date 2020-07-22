@@ -18,4 +18,12 @@ pip install -r requirements.txt
 
 For silent mode (will print everything that is being checked and if it is vulnerable)
 
+```
+python reportWEB.py https://www.google.es/entrypoint
+```
+
 For verbose mode (will print everything that would be printed in silent mode, plus every image that is generated in the console)
+
+```
+python reportWEB.py --verbose https://www.google.es/entrypoint
+```
