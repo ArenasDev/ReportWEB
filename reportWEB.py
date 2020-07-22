@@ -1,6 +1,8 @@
 import sys
 import os
 import datetime
+import httpx
+import httpcore
 import requests
 from PIL import ImageFont
 from PIL import Image
@@ -12,12 +14,14 @@ class ReportSSL:
 	def __init__(self):
 		#SET NECESSARY HEADERS HERE LIKE {'phpsessid' : '4yd10sm10qu3c4lv4r10'}
 		self.headers = {}
+		self.imageWidth = 80
 		self.imageFolder  = 'images'
 		self.parseArgsAndCheckConnectivity()
 		self.generateData()
-		self.securityHeaders = {("Cache-control", f"Cache-Control is -msg- (URL {self.url}):") : {"cache-control" : ["no-store", "must-revalidate"], "expires" : ["0", "-1"]}, ("HSTS", f"HSTS is -msg- (URL {self.url}):") : {"strict-transport-security" : ["max-age=31536000"]}, ("XSS Browser Filter", f"XSS protection filter is -msg- (URL {self.url}):") : {"x-xss-protection" : ["1; mode=block"]}, ("nosniff", f"X-Content-Type-Options: no-sniff -msg- (URL {self.url}):" ): {"x-content-type-options" : ["nosniff"]}, ("Clickjacking", f"Clickjacking is not prevented via X-Frame-Options or CSP (URL {self.url}):" ): {"x-frame-options" : ["deny", "sameorigin", "allow-from"], "content-security-policy" : ["child-src"]}}
-		self.infoheaders = ["server", "x-powered-by", "x-aspnet-version", "x-aspnetmvc-version", "x-generator", "via", "x-powered-by-plesk", "x-powered-cms", "x-server-powered-by" ]
+		self.securityHeaders = {("Cache-control", f"Cache-Control is -msg- (URL {self.url}):") : {"cache-control" : ["no-store", "must-revalidate"], "expires" : ["0", "-1"]}, ("HSTS", f"HSTS is -msg- (URL {self.url}):") : {"strict-transport-security" : ["max-age=31536000"]}, ("XSS Browser Filter", f"XSS protection filter is -msg- (URL {self.url}):") : {"x-xss-protection" : ["1; mode=block"]}, ("nosniff", f"X-Content-Type-Options: no-sniff -msg- (URL {self.url}):"): {"x-content-type-options" : ["nosniff"]}, ("Clickjacking", f"Clickjacking is not prevented via X-Frame-Options or CSP (URL {self.url}):"): {"x-frame-options" : ["deny", "sameorigin", "allow-from"], "content-security-policy" : ["child-src"]}}
+		self.infoHeaders = ["server", "x-powered-by", "x-aspnet-version", "x-aspnetmvc-version", "x-generator", "via", "x-powered-by-plesk", "x-powered-cms", "x-server-powered-by" ]
 		
+		self.checkDoubleHeadersAndCookies()
 		self.checkSecurityHeaders()
 		self.checkInfoHeaders()
 		self.checkCookies()
@@ -35,11 +39,12 @@ class ReportSSL:
 				self.url = sys.argv[1]
 			try:
 				print('Testing connectivity ...', end='', flush=True)
-				self.req = requests.get(self.url, headers = self.headers)
-			except requests.exceptions.MissingSchema as e:
+				self.req = httpx.get(self.url, verify=False, allow_redirects=False, headers = self.headers)
+				self.req2 = requests.get(self.url, verify=False, allow_redirects=False, headers = self.headers)
+			except httpx._exceptions.InvalidURL as e:
 				print(' missing schema (http:// or https://)')
 				sys.exit()
-			except requests.exceptions.ConnectionError as e:
+			except httpcore._exceptions.ConnectError as e:
 				print(' connection error, check URL and try again')
 				sys.exit()
 			
@@ -51,24 +56,55 @@ class ReportSSL:
 		print('Execute:\n\tpython reportSSL.py https://www.google.es/entrypoint\t\t(for silent mode)\n\tpython reportSSL.py --verbose https://www.google.es/entrypoint\t\t(for verbose mode)')
 		sys.exit()
 
+	def checkDoubleHeadersAndCookies(self):
+		print(f'Checking duplicated headers and cookies ...', end='', flush=True)
+		#Remove exact duplicates (header name and value)
+		self.req.headers = httpx._models.Headers(list(set([i for i in self.req.headers.items()])))
+
+		headers = {}
+		for h, value in self.req.headers.items():
+			if h.lower() != 'set-cookie':
+				if h.lower() in headers.keys():
+					#Exact duplicates are already out, so this has to be different value and has to be reported
+					indexes = self.getIndexes([(h, value), (h, headers[h])])
+					self.generateImageAndPrintInfo(f'Duplicate header {h} in response with different values', self.data, f'Duplicate header {h}', indexes)
+				else:
+					headers.update({h.lower() : value})
+
+		#DUPLICATED COOKIES TODO
+
+		print(' DONE')
+
 	def checkSecurityHeaders(self):
+		headers = []
 		for h1, v1 in self.securityHeaders.items():
+			passed = False
 			print(f'Checking {h1[0]} ...', end='', flush=True)
 			msg = 'missing'
-			check = False
 
 			for h, value in self.req.headers.items():
 				if h.lower() in v1.keys():
 					msg = 'not configured properly'
+					check = False
 					for elem in v1[h.lower()]:
 						if elem in value.lower():
 							check = True
+							passed = True
 							break
 
-			if not check:
-				print(msg)
-				indexes = self.getIndexes(v1.keys())
+					if not check:
+						headers.append((h.lower(), value))
+					else:
+						#If at least one of the values is correct, this header is correct
+						headers = []
+			
+			#None of the values were found in the header, thus incorrect and reported
+			#Dont report if one of the checks of this issue have passed (like clickjacking solved by x-frame-options and not in CSP)
+			if not passed:
+				indexes = self.getIndexes(headers)
 				self.generateImageAndPrintInfo(h1[1].replace('-msg-', msg), self.data, h1[0], indexes)
+				headers = []
+				print(msg)
 			else:
 				print(' CORRECT')
 
@@ -79,7 +115,7 @@ class ReportSSL:
 		for h, value in self.req.headers.items():
 			if h.lower() in self.infoHeaders:
 				if value not in discardValue:
-					indexes = self.getIndexes(h.lower())
+					indexes = self.getIndexes([(h.lower(), value)])
 					self.generateImageAndPrintInfo(f'Information disclosure in header {h}', self.data, f'Information disclosure in {h}', indexes)
 				
 		print(' Done')
@@ -87,7 +123,7 @@ class ReportSSL:
 	def checkCookies(self):
 		print('Checking httpOnly and Secure flags in cookies ...', end='', flush=True)
 
-		for c in self.req.cookies:
+		for c in self.req2.cookies:
 			if not c.secure:
 				indexes = self.getIndexes([c.name], cookies = True)
 				self.generateImageAndPrintInfo(f'Cookie {c.name} without secure flag', self.data, f'Secure Flag {c.name}', indexes)
@@ -101,27 +137,33 @@ class ReportSSL:
 		self.data = ''
 		for h, value in self.req.headers.items():
 			aux = '{}: {}'.format(h, value)
-			mod = len(aux) % 80
-			i = int(len(aux) / 80)
+			mod = len(aux) % self.imageWidth
+			i = int(len(aux) / self.imageWidth)
 			if i > 0:
 				for counter in range(i):
-					self.data += '\r\n' + aux[80 * counter:80 * counter + 80]
+					self.data += '\r\n' + aux[self.imageWidth * counter:self.imageWidth * counter + self.imageWidth]
 				if mod > 0:
-					self.data += '\r\n' + aux[80 * counter + 80:]
+					self.data += '\r\n' + aux[self.imageWidth * counter + self.imageWidth:]
 			else:
 				self.data += '\r\n' + '{}: {}'.format(h, value)
 
 	def getIndexes(self, headers, cookies = False):
-		counter = 0
 		indexes = []
-		for line in self.data.split('\n'):
-			if not cookies and ':' in line:
-				if line.lower().split(":")[0] in headers:
-					indexes.append(counter + 1)
-			elif cookies:
+		if not cookies:
+			for h,v in headers:
+				counter = 0
+				for line in self.data.split('\r\n'):
+					if ': ' in line:
+						vAux = v.lower()[0:self.imageWidth] if len(v) >= self.imageWidth else v.lower()
+						if line.lower().split(": ")[0] == h and line.lower().split(": ")[1] == vAux:
+							indexes.append(counter + 1)
+					counter += 1
+		else:
+			counter = 0
+			for line in self.data.split('\r\n'):
 				if headers[0] in line.lower():
 					indexes.append(counter + 1)
-			counter += 1
+				counter += 1
 
 		return indexes
 
@@ -136,7 +178,6 @@ class ReportSSL:
 		else:
 			self.printt('-' * len(prev))
 			data += '-' * len(prev) + '\n'
-
 		
 		self.printt(pt)
 		data += pt
@@ -145,7 +186,6 @@ class ReportSSL:
 	def printt(self, text):
 		if self.verbose:
 			print(text)
-
 
 	def text2png(self, text, fullpath, color = "#000", bgcolor = "#FFF", fontsize = 30, padding = 10, indexes = []):
 		font = ImageFont.truetype("consola.ttf", fontsize)
