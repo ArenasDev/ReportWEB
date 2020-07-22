@@ -10,33 +10,17 @@ urllib3.disable_warnings()
 
 class ReportSSL:
 	def __init__(self):
-		#SET HEADERS HERE LIKE {'phpsessid' : '4yd10sm10qu3c4lv4r10'}
+		#SET NECESSARY HEADERS HERE LIKE {'phpsessid' : '4yd10sm10qu3c4lv4r10'}
 		self.headers = {}
 		self.imageFolder  = 'images'
 		self.parseArgsAndCheckConnectivity()
 		self.generateData()
-		self.securityHeaders = {("Cache-control", f"Cache-Control is not configured properly or missing (URL {self.url}):") : {"cache-control" : ["no-cache", "nostore"], "expires" : ["0"], "pragma" : ["no-cache"]}, ("HSTS", f"HSTS is not configured properly, missing or insufficient value (URL {self.url}):") : {"strict-transport-security" : ["max-age=31536000"]}, ("XSS Browser Filter", f"XSS protection filter is not configured properly or missing (URL {self.url}):") : {"x-xss-protection" : ["1; mode=block"]}, ("no-sniff", f"X-Content-Type-Options: no-sniff is missing (URL {self.url}):" ): {"x-content-type-options" : ["no-sniff"]}, ("Clickjacking", f"Clickjacking is not prevented via X-Frame-Options or CSP (URL {self.url}):" ): {"x-frame-options" : ["deny", "sameorigin", "allow-from"], "content-security-policy" : ["child-src"]}}
-		self.infoHeaders = {"server" : ["", "."], "x-powered-by" : ["", "."], "x-aspnet-version": ["", "."], "x-aspnetmvc-version" : ["", "."]}
-		
+		self.securityHeaders = {("Cache-control", f"Cache-Control is -msg- (URL {self.url}):") : {"cache-control" : ["no-store", "must-revalidate"], "expires" : ["0", "-1"]}, ("HSTS", f"HSTS is -msg- (URL {self.url}):") : {"strict-transport-security" : ["max-age=31536000"]}, ("XSS Browser Filter", f"XSS protection filter is -msg- (URL {self.url}):") : {"x-xss-protection" : ["1; mode=block"]}, ("nosniff", f"X-Content-Type-Options: no-sniff -msg- (URL {self.url}):" ): {"x-content-type-options" : ["nosniff"]}, ("Clickjacking", f"Clickjacking is not prevented via X-Frame-Options or CSP (URL {self.url}):" ): {"x-frame-options" : ["deny", "sameorigin", "allow-from"], "content-security-policy" : ["child-src"]}}
+		self.infoheaders = ["server", "x-powered-by", "x-aspnet-version", "x-aspnetmvc-version", "x-generator", "via", "x-powered-by-plesk", "x-powered-cms", "x-server-powered-by" ]
 		
 		self.checkSecurityHeaders()
 		self.checkInfoHeaders()
 		self.checkCookies()
-
-		'''
-		Strict-Transport-Security
-		X-XSS-Protection: 1; mode=block
-		X-Content-Type-Options: no-sniff
-		X-FRAME-OPTIONS (deny, sameorigin or allow-from) or Content-Security-Policy (child-src)
-		Access-Control-Allow-Origin (this always need manual checking)
-		Set-Cookie: (check that every cookie has httpOnly and secure if using https), this needs manual checking to see if cookie is for session
-		Cache-Control: no-cache
-
-		Server (with a different value than empty and a single dot)
-		X-Powered-By
-		X-AspNet-Version
-		X-AspNetMvc-Version
-		'''
 
 	def parseArgsAndCheckConnectivity(self):
 		if len(sys.argv) == 2 or len(sys.argv) == 3:
@@ -53,7 +37,7 @@ class ReportSSL:
 				print('Testing connectivity ...', end='', flush=True)
 				self.req = requests.get(self.url, headers = self.headers)
 			except requests.exceptions.MissingSchema as e:
-				print(' missing schema')
+				print(' missing schema (http:// or https://)')
 				sys.exit()
 			except requests.exceptions.ConnectionError as e:
 				print(' connection error, check URL and try again')
@@ -70,28 +54,31 @@ class ReportSSL:
 	def checkSecurityHeaders(self):
 		for h1, v1 in self.securityHeaders.items():
 			print(f'Checking {h1[0]} ...', end='', flush=True)
+			msg = 'missing'
 			check = False
 
 			for h, value in self.req.headers.items():
 				if h.lower() in v1.keys():
+					msg = 'not configured properly'
 					for elem in v1[h.lower()]:
 						if elem in value.lower():
 							check = True
 							break
 
 			if not check:
-				print(' MISCONFIGURATION')
+				print(msg)
 				indexes = self.getIndexes(v1.keys())
-				self.generateImageAndPrintInfo(h1[1], self.data, h1[0], indexes)
+				self.generateImageAndPrintInfo(h1[1].replace('-msg-', msg), self.data, h1[0], indexes)
 			else:
 				print(' CORRECT')
 
 	def checkInfoHeaders(self):
 		print('Checking information disclosure headers ...', end='', flush=True)
+		discardValue = ['', '.']
 
 		for h, value in self.req.headers.items():
-			if h.lower() in self.infoHeaders.keys():
-				if value not in self.infoHeaders[h.lower()]:
+			if h.lower() in self.infoHeaders:
+				if value not in discardValue:
 					indexes = self.getIndexes(h.lower())
 					self.generateImageAndPrintInfo(f'Information disclosure in header {h}', self.data, f'Information disclosure in {h}', indexes)
 				
