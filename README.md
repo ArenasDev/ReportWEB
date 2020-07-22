@@ -1,10 +1,10 @@
-# reportSSL
+# reportWEB
 
-Python tool to analyze SSL/TLS vulnerabilities and generate image proof of all issues.
+Python tool to analyze HTTP common headers misconfigurations, information leakage, cookies attributes and generate image proof of all issues.
 
 ## Getting Started
 
-To use reportSSL python 3.X is required.
+To use reportWEB python 3.X is required.
 
 ### Installing
 
@@ -18,14 +18,4 @@ pip install -r requirements.txt
 
 For silent mode (will print everything that is being checked and if it is vulnerable)
 
-```
-python reportSSL.py www.google.es 443
-```
-![Silent Mode](/silentSample.png)
-
 For verbose mode (will print everything that would be printed in silent mode, plus every image that is generated in the console)
-
-```
-python reportSSL.py --verbose www.google.es 443
-```
-![Image Sample](/imageSample.png)
