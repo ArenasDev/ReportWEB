@@ -4,6 +4,7 @@ import datetime
 import httpx
 import httpcore
 import requests
+import random
 from PIL import ImageFont
 from PIL import Image
 from PIL import ImageDraw
@@ -12,8 +13,14 @@ urllib3.disable_warnings()
 
 class ReportSSL:
 	def __init__(self):
-		#SET NECESSARY HEADERS HERE LIKE {'phpsessid' : '4yd10sm10qu3c4lv4r10'}
+		#SET NECESSARY HEADERS HERE LIKE {'X-Forwarded-For' : '127.0.0.1'}
 		self.headers = {}
+		#SET NECESSARY COOKIES HERE LIKE {'phpsessid' : '4yd10sm10qu3c4lv4r10'}
+		self.cookies = {}
+		#SET NECESSARY PROXIES HERE LIKE {"http": "http://127.0.0.1:8080", "https": "http://127.0.0.1:8080"}
+		self.proxies = {}
+		userAgents = ['Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/84.0.4147.89 Safari/537.36','Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/84.0.4147.89 Safari/537.36','Mozilla/5.0 (Windows NT 10.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/84.0.4147.89 Safari/537.36','Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:78.0) Gecko/20100101 Firefox/78.0','Mozilla/5.0 (X11; Ubuntu; Linux i686; rv:78.0) Gecko/20100101 Firefox/78.0']
+		self.headers.update({'User-Agent' : random.choice(userAgents)})
 		self.imageWidth = 80
 		self.imageFolder  = 'images'
 		self.parseArgsAndCheckConnectivity()
@@ -39,8 +46,10 @@ class ReportSSL:
 				self.url = sys.argv[1]
 			try:
 				print('Testing connectivity ...', end='', flush=True)
-				self.req = httpx.get(self.url, verify=False, allow_redirects=False, headers = self.headers)
-				self.req2 = requests.get(self.url, verify=False, allow_redirects=False, headers = self.headers)
+				with httpx.Client(proxies=self.proxies, verify=False, headers = self.headers, cookies = self.cookies, timeout=10.0) as client:
+					self.req = client.get(self.url, allow_redirects=False)
+					print(self.req.headers)
+				# self.req = httpx.get(self.url, verify=False, allow_redirects=False, headers = self.headers, cookies = self.cookies)
 			except httpx._exceptions.InvalidURL as e:
 				print(' missing schema (http:// or https://)')
 				sys.exit()
@@ -71,7 +80,17 @@ class ReportSSL:
 				else:
 					headers.update({h.lower() : value})
 
-		#DUPLICATED COOKIES TODO
+		cookies = {}
+		for h, v in self.req.headers.items():
+			if 'set-cookie' in h.lower():
+				name = v.split("=")[0]
+				value = v.split("=")[1:]
+				if name in cookies.keys():
+					if cookies[name][0] != value:
+						indexes = self.getIndexes([(h, v), (h, cookies[name][1])])
+						self.generateImageAndPrintInfo(f'Duplicate cookie {name} in response with different values', self.data, f'Duplicate cookie {name}', indexes)
+				else:
+					cookies.update({name : [value, v]})
 
 		print(' DONE')
 
@@ -123,47 +142,55 @@ class ReportSSL:
 	def checkCookies(self):
 		print('Checking httpOnly and Secure flags in cookies ...', end='', flush=True)
 
-		for c in self.req2.cookies:
-			if not c.secure:
-				indexes = self.getIndexes([c.name], cookies = True)
-				self.generateImageAndPrintInfo(f'Cookie {c.name} without secure flag', self.data, f'Secure Flag {c.name}', indexes)
-			if not c.has_nonstandard_attr("HttpOnly") and not c.has_nonstandard_attr("httpOnly") and not c.has_nonstandard_attr("Httponly") and not c.has_nonstandard_attr("httponly"):
-				indexes = self.getIndexes([c.name], cookies = True)
-				self.generateImageAndPrintInfo(f'Cookie {c.name} without httpOnly flag', self.data, f'httpOnly Flag {c.name}', indexes)
+		for h, value in self.req.headers.items():
+			if 'set-cookie' in h.lower():
+				if '; secure' not in value.lower():
+					indexes = self.getIndexes([(h, value)])
+					self.generateImageAndPrintInfo(f'Cookie {value.split("=")[0]} without secure flag', self.data, f'Secure Flag {value.split("=")[0]}', indexes)
+				if '; httponly' not in value.lower():
+					indexes = self.getIndexes([(h, value)])
+					self.generateImageAndPrintInfo(f'Cookie {value.split("=")[0]} without httpOnly flag', self.data, f'httpOnly Flag {value.split("=")[0]}', indexes)
 
 		print(' Done')
 
 	def generateData(self):
-		self.data = ''
+		self.data = '\r\n'
 		for h, value in self.req.headers.items():
 			aux = '{}: {}'.format(h, value)
 			mod = len(aux) % self.imageWidth
 			i = int(len(aux) / self.imageWidth)
 			if i > 0:
-				for counter in range(i):
-					self.data += '\r\n' + aux[self.imageWidth * counter:self.imageWidth * counter + self.imageWidth]
-				if mod > 0:
-					self.data += '\r\n' + aux[self.imageWidth * counter + self.imageWidth:]
-			else:
-				self.data += '\r\n' + '{}: {}'.format(h, value)
-
-	def getIndexes(self, headers, cookies = False):
-		indexes = []
-		if not cookies:
-			for h,v in headers:
+				#The last '' is not empty, it has a zero width space used to mark lines not cropped or first lines of cropped lines
+				self.data += aux[0:self.imageWidth] + '​' + '\r\n'
 				counter = 0
-				for line in self.data.split('\r\n'):
-					if ': ' in line:
-						vAux = v.lower()[0:self.imageWidth] if len(v) >= self.imageWidth else v.lower()
-						if line.lower().split(": ")[0] == h and line.lower().split(": ")[1] == vAux:
-							indexes.append(counter + 1)
-					counter += 1
-		else:
+				for counter in range(1, i):
+					self.data += aux[self.imageWidth * counter:self.imageWidth * counter + self.imageWidth] + '\r\n'
+				if mod > 0:
+					self.data += aux[self.imageWidth * counter + self.imageWidth:] + '\r\n'
+			else:
+				self.data += aux + '​' + '\r\n'
+
+	def getIndexes(self, elements):
+		indexes = []
+		for h,v in elements:
 			counter = 0
+			cropped = -1
 			for line in self.data.split('\r\n'):
-				if headers[0] in line.lower():
-					indexes.append(counter + 1)
+				# print(line[-1] != '​')
+				#This '' is not empty, it has a zero-width space to check if line is first line or not cropped, meaning that the current range must end
+				if cropped > 0 and line[-1] == '​':
+					#If marked line is cropped, check next line until it is not cropped
+					indexes.append((cropped, counter))
+					cropped = -1
+
+				aux = h + ': ' + v
+				vAux = aux.lower()[0:self.imageWidth] if len(aux) >= self.imageWidth else aux.lower()
+				if vAux in line.lower():
+					cropped = counter + 1
 				counter += 1
+
+			if cropped > 0:
+				indexes.append((cropped, counter))
 
 		return indexes
 
@@ -187,7 +214,7 @@ class ReportSSL:
 		if self.verbose:
 			print(text)
 
-	def text2png(self, text, fullpath, color = "#000", bgcolor = "#FFF", fontsize = 30, padding = 10, indexes = []):
+	def text2png(self, text, fullpath, color = "#000", bgcolor = "#FFF", fontsize = 30, padding = 10, indexes = [[]]):
 		font = ImageFont.truetype("consola.ttf", fontsize)
 
 		width = font.getsize(max(text.split('\n'), key = len))[0] + (padding * 2)
@@ -203,12 +230,10 @@ class ReportSSL:
 			y += lineHeight
 
 		#Draw the highlight rectangle, have to use line instead of rectangle because it does not support line THICCness
-		for startLine in indexes:
-			#Add 1 because otherwise it does not print the rectangle
-			endLine = startLine + 1
+		for startLine, endLine in indexes:
 			#Add 1 to index because of the heading line
 			startLine += 1
-			endLine += 1
+			endLine += 2
 			point1 = (3, (padding / 2) + 3 + lineHeight * startLine)
 			point2 = (3 + font.getsize(text.split('\n')[startLine])[0] + padding, (padding / 2) + 3 + lineHeight * startLine)
 			point3 = (3 + font.getsize(text.split('\n')[startLine])[0] + padding, padding + lineHeight * (startLine + (endLine - startLine)))
