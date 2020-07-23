@@ -48,7 +48,6 @@ class ReportSSL:
 				print('Testing connectivity ...', end='', flush=True)
 				with httpx.Client(proxies=self.proxies, verify=False, headers = self.headers, cookies = self.cookies, timeout=10.0) as client:
 					self.req = client.get(self.url, allow_redirects=False)
-					print(self.req.headers)
 				# self.req = httpx.get(self.url, verify=False, allow_redirects=False, headers = self.headers, cookies = self.cookies)
 			except httpx._exceptions.InvalidURL as e:
 				print(' missing schema (http:// or https://)')
@@ -169,6 +168,8 @@ class ReportSSL:
 					self.data += aux[self.imageWidth * counter + self.imageWidth:] + '\r\n'
 			else:
 				self.data += aux + '​' + '\r\n'
+
+		self.data = self.data[:-2]
 
 	def getIndexes(self, elements):
 		indexes = []
