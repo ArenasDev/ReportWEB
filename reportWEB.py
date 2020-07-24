@@ -21,7 +21,7 @@ class ReportSSL:
 		self.proxies = {}
 		userAgents = ['Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/84.0.4147.89 Safari/537.36','Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/84.0.4147.89 Safari/537.36','Mozilla/5.0 (Windows NT 10.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/84.0.4147.89 Safari/537.36','Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:78.0) Gecko/20100101 Firefox/78.0','Mozilla/5.0 (X11; Ubuntu; Linux i686; rv:78.0) Gecko/20100101 Firefox/78.0']
 		self.headers.update({'User-Agent' : random.choice(userAgents)})
-		self.imageWidth = 80
+		self.imageWidth = 60
 		self.imageFolder  = 'images'
 		self.parseArgsAndCheckConnectivity()
 		self.generateData()
@@ -48,6 +48,7 @@ class ReportSSL:
 				print('Testing connectivity ...', end='', flush=True)
 				with httpx.Client(proxies=self.proxies, verify=False, headers = self.headers, cookies = self.cookies, timeout=10.0) as client:
 					self.req = client.get(self.url, allow_redirects=False)
+					self.fixHeadersCapitalization()
 				# self.req = httpx.get(self.url, verify=False, allow_redirects=False, headers = self.headers, cookies = self.cookies)
 			except httpx._exceptions.InvalidURL as e:
 				print(' missing schema (http:// or https://)')
@@ -59,6 +60,15 @@ class ReportSSL:
 			print(" COMPLETED.")
 		else:
 			self.printHelp()
+
+	def fixHeadersCapitalization(self):
+		#This is a temporary fix (not perfect) while an official fix is launched
+		keys = self.req.headers.keys()
+		newKeys = {}
+		for key in keys:
+			newKeys.update({'-'.join(c.capitalize() for c in key.split('-')) : self.req.headers.pop(key)})
+		self.req.headers = newKeys
+
 
 	def printHelp(self):
 		print('Execute:\n\tpython reportSSL.py https://www.google.es/entrypoint\t\t(for silent mode)\n\tpython reportSSL.py --verbose https://www.google.es/entrypoint\t\t(for verbose mode)')
@@ -153,21 +163,18 @@ class ReportSSL:
 		print(' Done')
 
 	def generateData(self):
-		self.data = '\r\n'
+		self.data = f'\r\n{self.req.http_version} {self.req.status_code} {self.req.reason_phrase}\r\n'
 		for h, value in self.req.headers.items():
 			aux = '{}: {}'.format(h, value)
 			mod = len(aux) % self.imageWidth
-			i = int(len(aux) / self.imageWidth)
-			if i > 0:
-				#The last '' is not empty, it has a zero width space used to mark lines not cropped or first lines of cropped lines
-				self.data += aux[0:self.imageWidth] + '​' + '\r\n'
-				counter = 0
-				for counter in range(1, i):
-					self.data += aux[self.imageWidth * counter:self.imageWidth * counter + self.imageWidth] + '\r\n'
-				if mod > 0:
-					self.data += aux[self.imageWidth * counter + self.imageWidth:] + '\r\n'
-			else:
-				self.data += aux + '​' + '\r\n'
+			i = max(int(len(aux) / self.imageWidth), 1)
+			#The last '' is not empty, it has a zero width space used to mark lines not cropped or first lines of cropped lines
+			self.data += aux[0:self.imageWidth] + '​' + '\r\n'
+			counter = 0
+			for counter in range(1, i):
+				self.data += aux[self.imageWidth * counter:self.imageWidth * counter + self.imageWidth] + '\r\n'
+			if mod > 0 and counter > 0:
+				self.data += aux[self.imageWidth * counter + self.imageWidth:] + '\r\n'
 
 		self.data = self.data[:-2]
 
@@ -199,13 +206,13 @@ class ReportSSL:
 		data = ''
 		self.printt('')
 		self.printt(prev)
-		data += prev + '\n'
-		if len(prev.split('\n')) > 1:
-			self.printt('-' * len(prev.split('\n')[-1]))
-			data += '-' * len(prev.split('\n')[-1]) + '\n'
+		data += prev + '\r\n'
+		if len(prev.split('\r\n')) > 1:
+			self.printt('-' * len(prev.split('\r\n')[-1]))
+			data += '-' * len(prev.split('\r\n')[-1]) + '\r\n'
 		else:
 			self.printt('-' * len(prev))
-			data += '-' * len(prev) + '\n'
+			data += '-' * len(prev) + '\r\n'
 		
 		self.printt(pt)
 		data += pt
@@ -215,19 +222,57 @@ class ReportSSL:
 		if self.verbose:
 			print(text)
 
-	def text2png(self, text, fullpath, color = "#000", bgcolor = "#FFF", fontsize = 30, padding = 10, indexes = [[]]):
-		font = ImageFont.truetype("consola.ttf", fontsize)
+	def text2png(self, text, fullpath, color = "#000000", bgcolor = "#FFF", fontsize = 15, padding = 10, indexes = [[]]):
+		font = ImageFont.truetype("cour.ttf", fontsize)
 
-		width = font.getsize(max(text.split('\n'), key = len))[0] + (padding * 2)
-		lineHeight = font.getsize(text)[1]
-		imgHeight = lineHeight * (len(text.split('\n')) + 1) + padding
+		width = font.getsize(max(text.split('\r\n'), key = len))[0] + (padding * 2)
+		# +2 behaves like more space between lines
+		lineHeight = font.getsize(text)[1] + int(font.getsize(text)[1] * 0.15)
+		imgHeight = lineHeight * (len(text.split('\r\n')) + 1) + padding
 		img = Image.new("RGBA", (width, imgHeight), bgcolor)
 		draw = ImageDraw.Draw(img)
 
 		y = padding
+		headerColor = "#000075"
+		cookieNameColor = "#0000C0"
+		cookieValueColor = "#A01010"
+
+		#TODO: fix that long set-cookies headers that goes into the second line does not get the colors right
+		# Maybe loop the headers again like in generateData method to go header by header and separate the set-cookie
+		# header in elements and print them one by one, cropping one in the middle if necessary
+
 		#Draw the text
-		for line in text.split('\n'):
-			draw.text((padding, y), line, color, font=font)
+		for line in text.split('\r\n'):
+			#If line is marked as first line or line without crop, it is a header. This '' is not empty, its a zero-width space
+			if len(line) > 0 and line[-1] == '​':
+				#Remove the zero-width space because courier new prints a square
+				line = line.replace('​', '')
+				draw.text((padding, y), line.split(': ')[0], headerColor, font=font)
+				extraPadding = font.getsize(line.split(': ')[0])[0]
+				#Print the header name in blue
+				# if 'set-cookie' in line.lower():
+				# 	#Print in black the ': ' separator of header and value
+				# 	rest = ': '.join(line.split(': ')[1:])
+				# 	draw.text((padding + extraPadding, y), ': ', color, font=font)
+				# 	extraPadding += font.getsize(': ')[0]
+				# 	#Print in another blue the name of the cookie
+				# 	draw.text((padding + extraPadding, y), rest.split('=')[0], cookieNameColor, font=font)
+				# 	extraPadding += font.getsize(rest.split('=')[0])[0]
+				# 	rest = '='.join(rest.split('=')[1:])
+				# 	#Print in black the '=' separator of name and value of cookie
+				# 	draw.text((padding + extraPadding, y), '=', color, font=font)
+				# 	extraPadding += font.getsize('=')[0]
+				# 	#Print in red the value of the cookie
+				# 	draw.text((padding + extraPadding, y), rest.split(';')[0], cookieValueColor, font=font)
+				# 	extraPadding += font.getsize(rest.split(';')[0])[0]
+				# 	rest = ';'.join(rest.split(';')[1:])
+				# 	#Print in black the rest of the line
+				# 	draw.text((padding + extraPadding, y), ';' + rest, color, font=font)
+				# else:
+				# 	draw.text((padding + font.getsize(line.split(': ')[0])[0], y), ': ' + ': '.join(line.split(': ')[1:]), color, font=font)
+				draw.text((padding + font.getsize(line.split(': ')[0])[0], y), ': ' + ': '.join(line.split(': ')[1:]), color, font=font)
+			else:
+				draw.text((padding, y), line, color, font=font)
 			y += lineHeight
 
 		#Draw the highlight rectangle, have to use line instead of rectangle because it does not support line THICCness
@@ -239,10 +284,14 @@ class ReportSSL:
 			point2 = (3 + font.getsize(text.split('\n')[startLine])[0] + padding, (padding / 2) + 3 + lineHeight * startLine)
 			point3 = (3 + font.getsize(text.split('\n')[startLine])[0] + padding, padding + lineHeight * (startLine + (endLine - startLine)))
 			point4 = (3, padding + lineHeight * (startLine + (endLine - startLine)))
-			draw.line((point1, point2, point3, point4, point1), fill="red", width=5)
+			draw.line((point1, point2, point3, point4, point1), fill="red", width=2)
 
 		if not os.path.exists(self.imageFolder):
 			os.makedirs(self.imageFolder)
+
+		#Resize to 30% and use antialiasing
+		# w, h = img.size
+		# img = img.resize((int(w/3), int(h/3)), Image.ANTIALIAS)
 
 		img.save(fullpath, quality=100)
 
