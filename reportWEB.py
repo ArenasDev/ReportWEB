@@ -237,43 +237,128 @@ class ReportSSL:
 		cookieNameColor = "#0000C0"
 		cookieValueColor = "#A01010"
 
-		#TODO: fix that long set-cookies headers that goes into the second line does not get the colors right
-		# Maybe loop the headers again like in generateData method to go header by header and separate the set-cookie
-		# header in elements and print them one by one, cropping one in the middle if necessary
 
-		#Draw the text
-		for line in text.split('\r\n'):
-			#If line is marked as first line or line without crop, it is a header. This '' is not empty, its a zero-width space
-			if len(line) > 0 and line[-1] == '​':
-				#Remove the zero-width space because courier new prints a square
-				line = line.replace('​', '')
-				draw.text((padding, y), line.split(': ')[0], headerColor, font=font)
-				extraPadding = font.getsize(line.split(': ')[0])[0]
-				#Print the header name in blue
-				# if 'set-cookie' in line.lower():
-				# 	#Print in black the ': ' separator of header and value
-				# 	rest = ': '.join(line.split(': ')[1:])
-				# 	draw.text((padding + extraPadding, y), ': ', color, font=font)
-				# 	extraPadding += font.getsize(': ')[0]
-				# 	#Print in another blue the name of the cookie
-				# 	draw.text((padding + extraPadding, y), rest.split('=')[0], cookieNameColor, font=font)
-				# 	extraPadding += font.getsize(rest.split('=')[0])[0]
-				# 	rest = '='.join(rest.split('=')[1:])
-				# 	#Print in black the '=' separator of name and value of cookie
-				# 	draw.text((padding + extraPadding, y), '=', color, font=font)
-				# 	extraPadding += font.getsize('=')[0]
-				# 	#Print in red the value of the cookie
-				# 	draw.text((padding + extraPadding, y), rest.split(';')[0], cookieValueColor, font=font)
-				# 	extraPadding += font.getsize(rest.split(';')[0])[0]
-				# 	rest = ';'.join(rest.split(';')[1:])
-				# 	#Print in black the rest of the line
-				# 	draw.text((padding + extraPadding, y), ';' + rest, color, font=font)
-				# else:
-				# 	draw.text((padding + font.getsize(line.split(': ')[0])[0], y), ': ' + ': '.join(line.split(': ')[1:]), color, font=font)
-				draw.text((padding + font.getsize(line.split(': ')[0])[0], y), ': ' + ': '.join(line.split(': ')[1:]), color, font=font)
-			else:
-				draw.text((padding, y), line, color, font=font)
+		#New code to print HTTP responses with a Burp Style syntax highlight
+		index = 0
+		step = 0
+		extraPadding = 0
+		cookie = False
+		line = text.split('\r\n')[index]
+		#print first two lines (empty, http status code) both in black
+		for line in text.split('\r\n')[:4]:
+			draw.text((padding, y), line, color, font=font)
+			index += 1
 			y += lineHeight
+
+		while index < len(text.split('\r\n')):
+			line = text.split('\r\n')[index].replace('​', '')
+			#Step 0: Print header name in blue
+			if step == 0:
+				cookie = 'set-cookie' in line.lower()
+				if ':' in line:
+					#Delimiter of this step is in this line
+					draw.text((padding + extraPadding, y), line.split(':')[0], headerColor, font=font)
+					extraPadding += font.getsize(line.split(':')[0])[0]
+					#Get new line
+					step = 1
+					line = ': ' + line.split(':')[1]
+				else:
+					#Rest of line is in this step, but continues in the next line
+					draw.text((padding + extraPadding, y), line, headerColor, font=font)
+					extraPadding += font.getsize(line)[0]
+					index += 1
+					extraPadding = 0
+					y += lineHeight
+					# line = text.split('\r\n')[index]
+
+			#Print in black the separator of header name and value
+			if step == 1:
+				#No need to check if delimiter is in line because it has been checked before
+				draw.text((padding + extraPadding, y), ': ', color, font=font)
+				extraPadding += font.getsize(': ')[0]
+				step = 2
+				line = line[2:]
+				#Line is completed, get new line
+				if line == '':
+					index += 1
+					extraPadding = 0
+					y += lineHeight
+					# line = text.split('\r\n')[index]
+
+			#If current header is set-cookie, then print the cookie name in blue
+			#Else, print line in black
+			if step == 2:
+				if cookie:
+					if '=' in line:
+						#Delimiter of this step is in this line
+						draw.text((padding + extraPadding, y), line.split('=')[0], cookieNameColor, font=font)
+						extraPadding += font.getsize(line.split('=')[0])[0]
+						step = 3
+						line = '=' + line.split('=')[1]
+					else:
+						#Rest of line is in this step, but continues in the next line
+						draw.text((padding + extraPadding, y), line, cookieNameColor, font=font)
+						extraPadding += font.getsize(line)[0]
+						index += 1
+						extraPadding = 0
+						y += lineHeight
+						# line = text.split('\r\n')[index]
+				else:
+					#Regular header, print in black and check if this is the last line of this header
+					draw.text((padding + extraPadding, y), line, color, font=font)
+					extraPadding += font.getsize(line)[0]
+					#Check if this line is the last of this header
+					index += 1
+					extraPadding = 0
+					y += lineHeight
+					if index < len(text.split('\r\n')) and text.split('\r\n')[index][-1] == '​':
+						step = 0
+						cookie = False
+
+			#Print separator of cookie name and cookie value in black
+			if step == 3 and cookie:
+				#No need to check if delimiter is in line because it has been checked before
+				draw.text((padding + extraPadding, y), '=', color, font=font)
+				extraPadding += font.getsize('=')[0]
+				step = 4
+				line = line[1:]
+				#Line is completed, get new line
+				if line == '':
+					index += 1
+					extraPadding = 0
+					y += lineHeight
+
+			#Print cookie value in red
+			if step == 4 and cookie:
+				if ';' in line:
+					#Delimiter of this step is in this line
+					draw.text((padding + extraPadding, y), line.split(';')[0], cookieValueColor, font=font)
+					extraPadding += font.getsize(line.split(';')[0])[0]
+					step = 5
+					line = ';' + line.split(';')[1]
+				else:
+					#Rest of line is in this step, but continues in the next line
+					draw.text((padding + extraPadding, y), line, cookieValueColor, font=font)
+					extraPadding += font.getsize(line)[0]
+					index += 1
+					extraPadding = 0
+					y += lineHeight
+					# line = text.split('\r\n')[index]
+
+			#print rest of line in black
+			if step == 5 and cookie:
+				#Regular header, print in black and check if this is the last line of this header
+				draw.text((padding + extraPadding, y), line, color, font=font)
+				extraPadding += font.getsize(line)[0]
+				#Check if this line is the last of this header
+				index += 1
+				extraPadding = 0
+				y += lineHeight
+				if index < len(text.split('\r\n')) and text.split('\r\n')[index][-1] == '​':
+					step = 0
+					cookie = False
+
+
 
 		#Draw the highlight rectangle, have to use line instead of rectangle because it does not support line THICCness
 		for startLine, endLine in indexes:
