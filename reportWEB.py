@@ -19,14 +19,17 @@ class ReportSSL:
 		self.cookies = {}
 		#SET NECESSARY PROXIES HERE LIKE {"http": "http://127.0.0.1:8080", "https": "http://127.0.0.1:8080"}
 		self.proxies = {}
+		#SET WIDTH OF IMAGE HERE
+		self.imageWidth = 60
+		#SET NAME OF FOLDER IN WHICH IMAGES ARE SAVED HERE
+		self.imageFolder  = 'images'
 		userAgents = ['Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/84.0.4147.89 Safari/537.36','Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/84.0.4147.89 Safari/537.36','Mozilla/5.0 (Windows NT 10.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/84.0.4147.89 Safari/537.36','Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:78.0) Gecko/20100101 Firefox/78.0','Mozilla/5.0 (X11; Ubuntu; Linux i686; rv:78.0) Gecko/20100101 Firefox/78.0']
 		self.headers.update({'User-Agent' : random.choice(userAgents)})
-		self.imageWidth = 60
-		self.imageFolder  = 'images'
+		
 		self.parseArgsAndCheckConnectivity()
 		self.generateData()
 		self.securityHeaders = {("Cache-control", f"Cache-Control is -msg- (URL {self.url}):") : {"cache-control" : ["no-store", "must-revalidate"], "expires" : ["0", "-1"]}, ("HSTS", f"HSTS is -msg- (URL {self.url}):") : {"strict-transport-security" : ["max-age=31536000"]}, ("XSS Browser Filter", f"XSS protection filter is -msg- (URL {self.url}):") : {"x-xss-protection" : ["1; mode=block"]}, ("nosniff", f"X-Content-Type-Options: no-sniff -msg- (URL {self.url}):"): {"x-content-type-options" : ["nosniff"]}, ("Clickjacking", f"Clickjacking is not prevented via X-Frame-Options or CSP (URL {self.url}):"): {"x-frame-options" : ["deny", "sameorigin", "allow-from"], "content-security-policy" : ["child-src"]}}
-		self.infoHeaders = ["server", "x-powered-by", "x-aspnet-version", "x-aspnetmvc-version", "x-generator", "via", "x-powered-by-plesk", "x-powered-cms", "x-server-powered-by" ]
+		self.infoHeaders = ["server", "x-powered-by", "x-aspnet-version", "x-aspnetmvc-version", "x-generator", "via", "x-powered-by-plesk", "x-powered-cms", "x-server-powered-by", "x-owa-version", "MicrosoftSharePointTeamServices", "x-cocoon-version"]
 		
 		self.checkDoubleHeadersAndCookies()
 		self.checkSecurityHeaders()
@@ -226,7 +229,7 @@ class ReportSSL:
 		font = ImageFont.truetype("cour.ttf", fontsize)
 
 		width = font.getsize(max(text.split('\r\n'), key = len))[0] + (padding * 2)
-		# +2 behaves like more space between lines
+		# * 0.15 is the space between lines
 		lineHeight = font.getsize(text)[1] + int(font.getsize(text)[1] * 0.15)
 		imgHeight = lineHeight * (len(text.split('\r\n')) + 1) + padding
 		img = Image.new("RGBA", (width, imgHeight), bgcolor)
@@ -237,14 +240,13 @@ class ReportSSL:
 		cookieNameColor = "#0000C0"
 		cookieValueColor = "#A01010"
 
-
 		#New code to print HTTP responses with a Burp Style syntax highlight
 		index = 0
 		step = 0
 		extraPadding = 0
 		cookie = False
 		line = text.split('\r\n')[index]
-		#print first two lines (empty, http status code) both in black
+		#print first 4 lines (Explanation, separator line, empty and http status code) all in black
 		for line in text.split('\r\n')[:4]:
 			draw.text((padding, y), line, color, font=font)
 			index += 1
