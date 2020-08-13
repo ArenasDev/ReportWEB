@@ -66,10 +66,9 @@ class ReportSSL:
 
 	def fixHeadersCapitalization(self):
 		#This is a temporary fix (not perfect) while an official fix is launched
-		keys = self.req.headers.keys()
 		newKeys = {}
-		for key in keys:
-			newKeys.update({'-'.join(c.capitalize() for c in key.split('-')) : self.req.headers.pop(key)})
+		for key, item in self.req.headers.items():
+			newKeys.update({'-'.join(c.capitalize() for c in key.split('-')) : item})
 		self.req.headers = newKeys
 
 
