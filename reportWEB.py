@@ -168,15 +168,15 @@ class ReportSSL:
 		self.data = f'\r\n{self.req.http_version} {self.req.status_code} {self.req.reason_phrase}\r\n'
 		for h, value in self.req.headers.items():
 			aux = '{}: {}'.format(h, value)
-			mod = len(aux) % self.imageWidth
-			i = max(int(len(aux) / self.imageWidth), 1)
 			#The last '' is not empty, it has a zero width space used to mark lines not cropped or first lines of cropped lines
-			self.data += aux[0:self.imageWidth] + '​' + '\r\n'
-			counter = 0
-			for counter in range(1, i):
-				self.data += aux[self.imageWidth * counter:self.imageWidth * counter + self.imageWidth] + '\r\n'
-			if mod > 0 and counter > 0:
-				self.data += aux[self.imageWidth * counter + self.imageWidth:] + '\r\n'
+			position = 0
+			self.data += aux[position:position + self.imageWidth] + '​' + '\r\n'
+			position += self.imageWidth
+			while position < len(aux):
+				self.data += aux[position:position + self.imageWidth] + '\r\n'
+				position += self.imageWidth
+
+
 
 		self.data = self.data[:-2]
 
@@ -186,7 +186,6 @@ class ReportSSL:
 			counter = 0
 			cropped = -1
 			for line in self.data.split('\r\n'):
-				# print(line[-1] != '​')
 				#This '' is not empty, it has a zero-width space to check if line is first line or not cropped, meaning that the current range must end
 				if cropped > 0 and line[-1] == '​':
 					#If marked line is cropped, check next line until it is not cropped
