@@ -25,9 +25,9 @@ class ReportSSL:
 		self.imageFolder  = 'images'
 		userAgents = ['Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/84.0.4147.89 Safari/537.36','Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/84.0.4147.89 Safari/537.36','Mozilla/5.0 (Windows NT 10.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/84.0.4147.89 Safari/537.36','Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:78.0) Gecko/20100101 Firefox/78.0','Mozilla/5.0 (X11; Ubuntu; Linux i686; rv:78.0) Gecko/20100101 Firefox/78.0']
 		self.headers.update({'User-Agent' : random.choice(userAgents)})
-		
+		self.data = ''
 		self.parseArgsAndCheckConnectivity()
-		self.generateData()
+		self.data = self.generateData(False)
 		self.securityHeaders = {("Cache-control", f"Cache-Control is -msg- (URL {self.url}):") : {"cache-control" : ["no-store", "must-revalidate"], "expires" : ["0", "-1"]}, ("HSTS", f"HSTS is -msg- (URL {self.url}):") : {"strict-transport-security" : ["max-age=31536000"]}, ("XSS Browser Filter", f"XSS protection filter is -msg- (URL {self.url}):") : {"x-xss-protection" : ["1; mode=block"]}, ("nosniff", f"X-Content-Type-Options: no-sniff -msg- (URL {self.url}):"): {"x-content-type-options" : ["nosniff"]}, ("Clickjacking", f"Clickjacking is not prevented via X-Frame-Options or CSP (URL {self.url}):"): {"x-frame-options" : ["deny", "sameorigin", "allow-from"], "content-security-policy" : ["child-src"]}}
 		self.infoHeaders = ["server", "x-powered-by", "x-aspnet-version", "x-aspnetmvc-version", "x-generator", "via", "x-powered-by-plesk", "x-powered-cms", "x-server-powered-by", "x-owa-version", "MicrosoftSharePointTeamServices", "x-cocoon-version"]
 		
@@ -52,11 +52,14 @@ class ReportSSL:
 				with httpx.Client(proxies=self.proxies, verify=False, headers = self.headers, cookies = self.cookies, timeout=10.0) as client:
 					self.req = client.get(self.url, allow_redirects=False)
 					self.fixHeadersCapitalization()
+					request = self.generateData(True)
+					self.generateImageAndPrintInfo(f'RAW original request', request, f'ORIGINAL REQUEST')
 				# self.req = httpx.get(self.url, verify=False, allow_redirects=False, headers = self.headers, cookies = self.cookies)
 			except httpx._exceptions.InvalidURL as e:
 				print(' missing schema (http:// or https://)')
 				sys.exit()
 			except httpcore._exceptions.ConnectError as e:
+				print(e)
 				print(' connection error, check URL and try again')
 				sys.exit()
 			
@@ -71,6 +74,10 @@ class ReportSSL:
 			newKeys.update({'-'.join(c.capitalize() for c in key.split('-')) : item})
 		self.req.headers = newKeys
 
+		newKeys = {}
+		for key, item in self.req.request.headers.items():
+			newKeys.update({'-'.join(c.capitalize() for c in key.split('-')) : item})
+		self.req.request.headers = newKeys
 
 	def printHelp(self):
 		print('Execute:\n\tpython reportSSL.py https://www.google.es/entrypoint\t\t(for silent mode)\n\tpython reportSSL.py --verbose https://www.google.es/entrypoint\t\t(for verbose mode)')
@@ -164,21 +171,29 @@ class ReportSSL:
 
 		print(' Done')
 
-	def generateData(self):
-		self.data = f'\r\n{self.req.http_version} {self.req.status_code} {self.req.reason_phrase}\r\n'
-		for h, value in self.req.headers.items():
+	def generateData(self, request):
+		output = ''
+		if request:
+			path = str(self.req.request.url)[len(self.url):]
+			if path == '':
+				path = '/'
+			output = f'\r\n{self.req.request.method} {path} HTTP/1.1\r\n'
+			headers = self.req.request.headers.items()
+		else:
+			output = f'\r\n{self.req.http_version} {self.req.status_code} {self.req.reason_phrase}\r\n'
+			headers = self.req.headers.items()
+
+		for h, value in headers:
 			aux = '{}: {}'.format(h, value)
 			#The last '' is not empty, it has a zero width space used to mark lines not cropped or first lines of cropped lines
 			position = 0
-			self.data += aux[position:position + self.imageWidth] + '​' + '\r\n'
+			output += aux[position:position + self.imageWidth] + '​' + '\r\n'
 			position += self.imageWidth
 			while position < len(aux):
-				self.data += aux[position:position + self.imageWidth] + '\r\n'
+				output += aux[position:position + self.imageWidth] + '\r\n'
 				position += self.imageWidth
 
-
-
-		self.data = self.data[:-2]
+		return output[:-2]
 
 	def getIndexes(self, elements):
 		indexes = []
@@ -203,7 +218,7 @@ class ReportSSL:
 
 		return indexes
 
-	def generateImageAndPrintInfo(self, prev, pt, imageName, indexes):
+	def generateImageAndPrintInfo(self, prev, pt, imageName, indexes = None):
 		data = ''
 		self.printt('')
 		self.printt(prev)
@@ -223,7 +238,7 @@ class ReportSSL:
 		if self.verbose:
 			print(text)
 
-	def text2png(self, text, fullpath, color = "#000000", bgcolor = "#FFF", fontsize = 15, padding = 10, indexes = [[]]):
+	def text2png(self, text, fullpath, color = "#000000", bgcolor = "#FFF", fontsize = 15, padding = 10, indexes = None):
 		font = ImageFont.truetype("cour.ttf", fontsize)
 
 		width = font.getsize(max(text.split('\r\n'), key = len))[0] + (padding * 2)
@@ -254,14 +269,14 @@ class ReportSSL:
 			line = text.split('\r\n')[index].replace('​', '')
 			#Step 0: Print header name in blue
 			if step == 0:
-				cookie = 'set-cookie' in line.lower()
+				cookie = line.lower().startswith('set-cookie') or line.lower().startswith('cookie')
 				if ':' in line:
 					#Delimiter of this step is in this line
 					draw.text((padding + extraPadding, y), line.split(':')[0], headerColor, font=font)
 					extraPadding += font.getsize(line.split(':')[0])[0]
 					#Get new line
 					step = 1
-					line = ': ' + line.split(':')[1]
+					line = ': ' + ':'.join(line.split(':')[1:])
 				else:
 					#Rest of line is in this step, but continues in the next line
 					draw.text((padding + extraPadding, y), line, headerColor, font=font)
@@ -294,7 +309,7 @@ class ReportSSL:
 						draw.text((padding + extraPadding, y), line.split('=')[0], cookieNameColor, font=font)
 						extraPadding += font.getsize(line.split('=')[0])[0]
 						step = 3
-						line = '=' + line.split('=')[1]
+						line = '=' + '='.join(line.split('=')[1:])
 					else:
 						#Rest of line is in this step, but continues in the next line
 						draw.text((padding + extraPadding, y), line, cookieNameColor, font=font)
@@ -311,7 +326,7 @@ class ReportSSL:
 					index += 1
 					extraPadding = 0
 					y += lineHeight
-					if index < len(text.split('\r\n')) and text.split('\r\n')[index][-1] == '​':
+					if index < len(text.split('\r\n')) and (text.split('\r\n')[index] == '' or text.split('\r\n')[index][-1] == '​'):
 						step = 0
 						cookie = False
 
@@ -335,7 +350,7 @@ class ReportSSL:
 					draw.text((padding + extraPadding, y), line.split(';')[0], cookieValueColor, font=font)
 					extraPadding += font.getsize(line.split(';')[0])[0]
 					step = 5
-					line = ';' + line.split(';')[1]
+					line = ';' + ';'.join(line.split(';')[1:])
 				else:
 					#Rest of line is in this step, but continues in the next line
 					draw.text((padding + extraPadding, y), line, cookieValueColor, font=font)
@@ -358,18 +373,17 @@ class ReportSSL:
 					step = 0
 					cookie = False
 
-
-
 		#Draw the highlight rectangle, have to use line instead of rectangle because it does not support line THICCness
-		for startLine, endLine in indexes:
-			#Add 1 to index because of the heading line
-			startLine += 1
-			endLine += 2
-			point1 = (3, (padding / 2) + 3 + lineHeight * startLine)
-			point2 = (3 + font.getsize(text.split('\n')[startLine])[0] + padding, (padding / 2) + 3 + lineHeight * startLine)
-			point3 = (3 + font.getsize(text.split('\n')[startLine])[0] + padding, padding + lineHeight * (startLine + (endLine - startLine)))
-			point4 = (3, padding + lineHeight * (startLine + (endLine - startLine)))
-			draw.line((point1, point2, point3, point4, point1), fill="red", width=2)
+		if indexes != None:
+			for startLine, endLine in indexes:
+				#Add 1 to index because of the heading line
+				startLine += 1
+				endLine += 2
+				point1 = (3, (padding / 2) + 3 + lineHeight * startLine)
+				point2 = (3 + font.getsize(text.split('\n')[startLine])[0] + padding, (padding / 2) + 3 + lineHeight * startLine)
+				point3 = (3 + font.getsize(text.split('\n')[startLine])[0] + padding, padding + lineHeight * (startLine + (endLine - startLine)))
+				point4 = (3, padding + lineHeight * (startLine + (endLine - startLine)))
+				draw.line((point1, point2, point3, point4, point1), fill="red", width=2)
 
 		if not os.path.exists(self.imageFolder):
 			os.makedirs(self.imageFolder)
