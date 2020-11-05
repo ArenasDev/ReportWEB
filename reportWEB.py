@@ -13,7 +13,7 @@ urllib3.disable_warnings()
 
 class ReportSSL:
 	def __init__(self):
-		#SET NECESSARY HEADERS HERE LIKE {'X-Forwarded-For' : '127.0.0.1'}
+		#SET NECESSARY HEADERS HERE LIKE {'X-Forwarded-For' : '127.0.0.1'} (dont put origin here)
 		self.headers = {}
 		#SET NECESSARY COOKIES HERE LIKE {'phpsessid' : '4yd10sm10qu3c4lv4r10'}
 		self.cookies = {}
@@ -21,10 +21,12 @@ class ReportSSL:
 		self.proxies = {}
 		#SET WIDTH OF IMAGE HERE
 		self.imageWidth = 60
+		#SET VALUE FOR ORIGIN HEADER HERE (FOR CORS TESTING)
+		self.origin = 'https://reportweb.com'
 		#SET NAME OF FOLDER IN WHICH IMAGES ARE SAVED HERE
 		self.imageFolder  = 'images'
 		userAgents = ['Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/84.0.4147.89 Safari/537.36','Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/84.0.4147.89 Safari/537.36','Mozilla/5.0 (Windows NT 10.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/84.0.4147.89 Safari/537.36','Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:78.0) Gecko/20100101 Firefox/78.0','Mozilla/5.0 (X11; Ubuntu; Linux i686; rv:78.0) Gecko/20100101 Firefox/78.0']
-		self.headers.update({'User-Agent' : random.choice(userAgents)})
+		self.headers.update({'User-Agent' : random.choice(userAgents), 'Origin' : self.origin})
 		self.data = ''
 		self.parseArgsAndCheckConnectivity()
 		self.data = self.generateData(False)
@@ -33,6 +35,7 @@ class ReportSSL:
 		
 		self.checkDoubleHeadersAndCookies()
 		self.checkSecurityHeaders()
+		self.checkCORS()
 		self.checkInfoHeaders()
 		self.checkCookies()
 
@@ -144,6 +147,37 @@ class ReportSSL:
 				print(msg)
 			else:
 				print(' CORRECT')
+
+	def checkCORS(self):
+		print('Checking CORS misconfiguration ...', end='', flush=True)
+
+		checkAnyOrigin = False
+		checkWildcard = False
+		for h, value in self.req.headers.items():
+			if h.lower() == 'access-control-allow-origin':
+				#If the value is wildcard, report as potentially miconfiguration
+				if value == '*':
+					checkWildcard = True
+				elif value == self.origin:
+					checkAnyOrigin = True
+					indexes = self.getIndexes([(h.lower(), value)])
+					self.generateImageAndPrintInfo('CORS header reflects Origin header value, allowing any origin:', self.data, 'CORS misconfiguration ANY Origin', indexes)
+				break
+
+		#Double for loop to ensure the first processed header is access-control-allow-origin, only executed if any of the previous checks is true
+		if checkAnyOrigin or checkWildcard:
+			for h, value in self.req.headers.items():
+				if h.lower() == 'access-control-allow-credentials':
+					#If the credentials header is present with value true and origin is wildcard, thats a misconfiguration. If value is true and origin is reflected, thats a security issue
+					if value == 'true' and checkWildcard:
+						indexes = self.getIndexes([(h.lower(), value),('access-control-allow-origin', '*')])
+						self.generateImageAndPrintInfo('Access-Control-Allow-Credentials: True with Access-Control-Allow-Origin:* is not a valid configuration:', self.data, 'Potential CORS misconfiguration Wildcard and credentials', indexes)
+					elif value == 'true' and checkAnyOrigin:
+						indexes = self.getIndexes([(h.lower(), value),('access-control-allow-origin', self.origin)])
+						self.generateImageAndPrintInfo('Access-Control-Allow-Credentials: True with any Origin can expose private data:', self.data, 'CORS misconfiguration Any Origin and credentials', indexes)
+					break
+
+		print(' Done')
 
 	def checkInfoHeaders(self):
 		print('Checking information disclosure headers ...', end='', flush=True)
