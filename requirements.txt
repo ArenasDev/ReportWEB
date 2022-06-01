@@ -1,4 +1,4 @@
-httpx==0.13.3
+httpx==0.23.0
 requests==2.23.0
 httpcore==0.9.1
 urllib3==1.25.9
